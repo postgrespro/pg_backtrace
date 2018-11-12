@@ -1,0 +1,84 @@
+This PostgreSQL extension can be used to get more information
+about PostgreSQL backend execution when no debugger is available.
+It allows to dump stack trace when error is reported or exception is caught.
+So there three used cases of using this extension:
+
+1. Find out the source of error. pg_backtrace extension provides
+"pg_backtrace.level" GUC which selects error level for which backtrace information
+is attached. Default value is ERROR. So once this extension is initialized,
+all errors will include backtrace information which is dumped both in log
+file and delivered to the client:
+
+postgres=# select count(*)/0.0 from pg_class;
+ERROR:  division by zero
+CONTEXT:  	postgres: knizhnik postgres [local] SELECT(numeric_div+0xbc) [0x7c5ebc]
+	postgres: knizhnik postgres [local] SELECT() [0x5fe4e2]
+	postgres: knizhnik postgres [local] SELECT() [0x610730]
+	postgres: knizhnik postgres [local] SELECT() [0x6115ca]
+	postgres: knizhnik postgres [local] SELECT(standard_ExecutorRun+0x15a) [0x60193a]
+	postgres: knizhnik postgres [local] SELECT() [0x74168c]
+	postgres: knizhnik postgres [local] SELECT(PortalRun+0x29e) [0x742a7e]
+	postgres: knizhnik postgres [local] SELECT() [0x73e922]
+	postgres: knizhnik postgres [local] SELECT(PostgresMain+0x1189) [0x73fde9]
+	postgres: knizhnik postgres [local] SELECT() [0x47d5e0]
+	postgres: knizhnik postgres [local] SELECT(PostmasterMain+0xd28) [0x6d0448]
+	postgres: knizhnik postgres [local] SELECT(main+0x421) [0x47e511]
+	/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0xf0) [0x7f6361a13830]
+	postgres: knizhnik postgres [local] SELECT(_start+0x29) [0x47e589]
+
+2. Determine current state of backend (assume that there is some long running query
+and you do not know where it spends most of time). It is possible to send SIGINT signal
+to backend and it print current stack in logfile:
+
+2018-11-12 18:24:12.222 MSK [24457] LOG:  Caught signal 2
+2018-11-12 18:24:12.222 MSK [24457] CONTEXT:  	/lib/x86_64-linux-gnu/libpthread.so.0(+0x11390) [0x7f63624e3390]
+		/lib/x86_64-linux-gnu/libc.so.6(epoll_wait+0x13) [0x7f6361afa9f3]
+		postgres: knizhnik postgres [local] SELECT(WaitEventSetWait+0xbe) [0x71e4de]
+		postgres: knizhnik postgres [local] SELECT(WaitLatchOrSocket+0x8b) [0x71e93b]
+		postgres: knizhnik postgres [local] SELECT(pg_sleep+0x98) [0x7babd8]
+		postgres: knizhnik postgres [local] SELECT() [0x5fe4e2]
+		postgres: knizhnik postgres [local] SELECT() [0x6266a8]
+		postgres: knizhnik postgres [local] SELECT(standard_ExecutorRun+0x15a) [0x60193a]
+		postgres: knizhnik postgres [local] SELECT() [0x74168c]
+		postgres: knizhnik postgres [local] SELECT(PortalRun+0x29e) [0x742a7e]
+		postgres: knizhnik postgres [local] SELECT() [0x73e922]
+		postgres: knizhnik postgres [local] SELECT(PostgresMain+0x1189) [0x73fde9]
+		postgres: knizhnik postgres [local] SELECT() [0x47d5e0]
+		postgres: knizhnik postgres [local] SELECT(PostmasterMain+0xd28) [0x6d0448]
+		postgres: knizhnik postgres [local] SELECT(main+0x421) [0x47e511]
+		/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0xf0) [0x7f6361a13830]
+		postgres: knizhnik postgres [local] SELECT(_start+0x29) [0x47e589]
+
+3. Get stack trace for SIGSEGV or SIGBUS signals
+(if dumping cores is disabled for some reasons):
+
+2018-11-12 18:25:52.636 MSK [24518] LOG:  Caught signal 11
+2018-11-12 18:25:52.636 MSK [24518] CONTEXT:  	/home/knizhnik/postgresql/dist/lib/pg_backtrace.so(+0xe37) [0x7f6358838e37]
+		/lib/x86_64-linux-gnu/libpthread.so.0(+0x11390) [0x7f63624e3390]
+		/home/knizhnik/postgresql/dist/lib/pg_backtrace.so(pg_backtrace_sigsegv+0) [0x7f6358838fb0]
+		postgres: knizhnik postgres [local] SELECT() [0x5fe474]
+		postgres: knizhnik postgres [local] SELECT() [0x6266a8]
+		postgres: knizhnik postgres [local] SELECT(standard_ExecutorRun+0x15a) [0x60193a]
+		postgres: knizhnik postgres [local] SELECT() [0x74168c]
+		postgres: knizhnik postgres [local] SELECT(PortalRun+0x29e) [0x742a7e]
+		postgres: knizhnik postgres [local] SELECT() [0x73e922]
+		postgres: knizhnik postgres [local] SELECT(PostgresMain+0x1189) [0x73fde9]
+		postgres: knizhnik postgres [local] SELECT() [0x47d5e0]
+		postgres: knizhnik postgres [local] SELECT(PostmasterMain+0xd28) [0x6d0448]
+		postgres: knizhnik postgres [local] SELECT(main+0x421) [0x47e511]
+		/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0xf0) [0x7f6361a13830]
+		postgres: knizhnik postgres [local] SELECT(_start+0x29) [0x47e589]
+
+
+------------------------------------------------
+
+As far as Postgres extension is loaded and initialized on first access to
+its functions, it is necessary to call pg_backtrace_init() function to
+be able to use this extension. This function function actually does nothing
+and _PG_init() registers signal handlers for SIGSEGV, SIGBUS and SIGINT and
+executor run hook which setups exception context.
+
+Usage:
+
+create extension pg_backtrace;
+select pg_backtrace_init();
