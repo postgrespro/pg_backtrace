@@ -78,6 +78,26 @@ be able to use this extension. This function function actually does nothing
 and _PG_init() registers signal handlers for SIGSEGV, SIGBUS and SIGINT and
 executor run hook which setups exception context.
 
+This extension is using backtrace function which is available at most Unixes.
+As it was mentioned in backtrace documentation:
+
+    The symbol names may be unavailable without the use of special linker options.
+	For systems using the GNU linker, it is necessary to use the -rdynamic
+    linker option.  Note that names of "static" functions are not exposed,
+	and won't be available in the backtrace.
+
+Postgres is built without -rdynamic option. This is why not all function addresses
+in the stack trace above are resolved. It is possible to use GDB (at development
+host with correspondent postgres binaries) or Linux addr2line utility to
+get resolve function addresses:
+
+    $ addr2line -e ~/postgresql/dist/bin/postgres -a 0x5fe4e2
+    0x00000000005fe4e2
+    execExprInterp.c:?
+
+
+------------------------------------------------
+
 Usage:
 
 create extension pg_backtrace;
