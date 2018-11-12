@@ -98,6 +98,7 @@ void _PG_init(void)
 {
 	signal_handlers[SIGSEGV] = pqsignal(SIGSEGV, backtrace_handler);
 	signal_handlers[SIGBUS] = pqsignal(SIGBUS, backtrace_handler);
+	signal_handlers[SIGFPE] = pqsignal(SIGFPE, backtrace_handler);
 	signal_handlers[SIGINT] = pqsignal(SIGINT, backtrace_handler);
 	prev_executor_run_hook = ExecutorRun_hook;
 	ExecutorRun_hook = backtrace_executor_run_hook;
@@ -116,6 +117,7 @@ void _PG_fini(void)
 	ExecutorRun_hook = prev_executor_run_hook;
 	pqsignal(SIGSEGV, signal_handlers[SIGSEGV]);
 	pqsignal(SIGBUS,  signal_handlers[SIGBUS]);
+	pqsignal(SIGFPE,  signal_handlers[SIGFPE]);
 	pqsignal(SIGINT,  signal_handlers[SIGINT]);
 }
 
