@@ -33,11 +33,14 @@ backtrace_dump_stack(void)
     void* back_trace[MAX_BACK_TRACE_DEPTH];
     int depth = backtrace(back_trace, MAX_BACK_TRACE_DEPTH);
     char** stack = backtrace_symbols(back_trace+SKIP_FRAMES, depth-SKIP_FRAMES);
-    int i;
-    for (i = 0; i < depth-SKIP_FRAMES; i++) {
-		errcontext_msg("\t%s", stack[i]);
-    }
-    free(stack);
+	if (stack != NULL)
+	{
+		int i;
+		for (i = 0; i < depth-SKIP_FRAMES; i++) {
+			errcontext_msg("\t%s", stack[i]);
+		}
+		free(stack);
+	}
 }
 
 static void
@@ -55,9 +58,14 @@ backtrace_executor_run_hook(QueryDesc *queryDesc,
 							uint64 count,
 							bool execute_once)
 {
-	backtrace_callback.callback = backtrace_callback_function;
-	backtrace_callback.previous = error_context_stack;
-	error_context_stack = &backtrace_callback;
+	ErrorContextCallback* esp;
+	for (esp = error_context_stack; esp != NULL && esp != &backtrace_callback; esp = esp->previous);
+	if (esp == NULL)
+	{
+		backtrace_callback.callback = backtrace_callback_function;
+		backtrace_callback.previous = error_context_stack;
+		error_context_stack = &backtrace_callback;
+	}
 	if (prev_executor_run_hook)
 		(*prev_executor_run_hook)(queryDesc, direction, count, execute_once);
 	else
@@ -72,7 +80,7 @@ backtrace_handler(SIGNAL_ARGS)
 	inside_signal_handler = true;
 	elog(LOG, "Caught signal %d", postgres_signal_arg);
 	inside_signal_handler = false;
-	if (postgres_signal_arg != SIGINT)
+	if (postgres_signal_arg != SIGINT && signal_handlers[postgres_signal_arg])
 		signal_handlers[postgres_signal_arg](postgres_signal_arg);
 }
 
