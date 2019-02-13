@@ -5,6 +5,7 @@
 #include "postgres.h"
 #include "miscadmin.h"
 #include "utils/guc.h"
+#include "tcop/utility.h"
 #include "executor/executor.h"
 
 #ifdef PG_MODULE_MAGIC
@@ -24,6 +25,7 @@ PG_FUNCTION_INFO_V1(pg_backtrace_sigsegv);
 static int backtrace_level = ERROR;
 static ErrorContextCallback backtrace_callback;
 static ExecutorRun_hook_type prev_executor_run_hook;
+static ProcessUtility_hook_type prev_utility_hook;
 static bool inside_signal_handler;
 static pqsigfunc signal_handlers[_NSIG];
 
@@ -52,11 +54,7 @@ backtrace_callback_function(void* arg)
 	}
 }
 
-static void
-backtrace_executor_run_hook(QueryDesc *queryDesc,
-							ScanDirection direction,
-							uint64 count,
-							bool execute_once)
+static void backtrace_register_error_callback(void)
 {
 	ErrorContextCallback* esp;
 	for (esp = error_context_stack; esp != NULL && esp != &backtrace_callback; esp = esp->previous);
@@ -66,13 +64,37 @@ backtrace_executor_run_hook(QueryDesc *queryDesc,
 		backtrace_callback.previous = error_context_stack;
 		error_context_stack = &backtrace_callback;
 	}
+}
+
+static void
+backtrace_executor_run_hook(QueryDesc *queryDesc,
+							ScanDirection direction,
+							uint64 count,
+							bool execute_once)
+{
+	backtrace_register_error_callback();
 	if (prev_executor_run_hook)
 		(*prev_executor_run_hook)(queryDesc, direction, count, execute_once);
 	else
 		standard_ExecutorRun(queryDesc, direction, count, execute_once);
 }
 
-
+static void backtrace_utility_hook(PlannedStmt *pstmt,
+								   const char *queryString, ProcessUtilityContext context,
+								   ParamListInfo params,
+								   QueryEnvironment *queryEnv,
+								   DestReceiver *dest, char *completionTag)
+{
+	backtrace_register_error_callback();
+	if (prev_utility_hook)
+		(*prev_utility_hook)(pstmt, queryString,
+							 context, params, queryEnv,
+							 dest, completionTag);
+	else
+		standard_ProcessUtility(pstmt, queryString,
+								context, params, queryEnv,
+								dest, completionTag);
+}
 
 static void
 backtrace_handler(SIGNAL_ARGS)
@@ -111,6 +133,9 @@ void _PG_init(void)
 	prev_executor_run_hook = ExecutorRun_hook;
 	ExecutorRun_hook = backtrace_executor_run_hook;
 
+	prev_utility_hook = ProcessUtility_hook;
+	ProcessUtility_hook = backtrace_utility_hook;
+
     DefineCustomEnumVariable("pg_backtrace.level",
 							 "Set error level for dumping backtrace",
 							 NULL,
@@ -123,6 +148,7 @@ void _PG_init(void)
 void _PG_fini(void)
 {
 	ExecutorRun_hook = prev_executor_run_hook;
+	ProcessUtility_hook = prev_utility_hook;
 	pqsignal(SIGSEGV, signal_handlers[SIGSEGV]);
 	pqsignal(SIGBUS,  signal_handlers[SIGBUS]);
 	pqsignal(SIGFPE,  signal_handlers[SIGFPE]);
