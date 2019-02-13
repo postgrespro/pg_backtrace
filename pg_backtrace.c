@@ -4,6 +4,7 @@
 
 #include "postgres.h"
 #include "miscadmin.h"
+#include "parser/analyze.h"
 #include "utils/guc.h"
 #include "tcop/utility.h"
 #include "executor/executor.h"
@@ -26,6 +27,7 @@ static int backtrace_level = ERROR;
 static ErrorContextCallback backtrace_callback;
 static ExecutorRun_hook_type prev_executor_run_hook;
 static ProcessUtility_hook_type prev_utility_hook;
+static post_parse_analyze_hook_type prev_post_parse_analyze_hook;
 static bool inside_signal_handler;
 static pqsigfunc signal_handlers[_NSIG];
 
@@ -96,6 +98,14 @@ static void backtrace_utility_hook(PlannedStmt *pstmt,
 								dest, completionTag);
 }
 
+static void backtrace_post_parse_analyze_hook(ParseState *pstate, Query *query)
+{
+	backtrace_register_error_callback();
+	if (prev_post_parse_analyze_hook)
+		prev_post_parse_analyze_hook(pstate, query);
+}
+
+
 static void
 backtrace_handler(SIGNAL_ARGS)
 {
@@ -136,6 +146,9 @@ void _PG_init(void)
 	prev_utility_hook = ProcessUtility_hook;
 	ProcessUtility_hook = backtrace_utility_hook;
 
+	prev_post_parse_analyze_hook = post_parse_analyze_hook;
+	post_parse_analyze_hook = backtrace_post_parse_analyze_hook;
+
     DefineCustomEnumVariable("pg_backtrace.level",
 							 "Set error level for dumping backtrace",
 							 NULL,
@@ -149,6 +162,8 @@ void _PG_fini(void)
 {
 	ExecutorRun_hook = prev_executor_run_hook;
 	ProcessUtility_hook = prev_utility_hook;
+	post_parse_analyze_hook = prev_post_parse_analyze_hook;
+
 	pqsignal(SIGSEGV, signal_handlers[SIGSEGV]);
 	pqsignal(SIGBUS,  signal_handlers[SIGBUS]);
 	pqsignal(SIGFPE,  signal_handlers[SIGFPE]);
