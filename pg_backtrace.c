@@ -82,27 +82,30 @@ backtrace_executor_run_hook(QueryDesc *queryDesc,
 }
 
 static void backtrace_utility_hook(PlannedStmt *pstmt,
-								   const char *queryString, ProcessUtilityContext context,
+								   const char *queryString,
+								   bool readOnlyTree,
+								   ProcessUtilityContext context,
 								   ParamListInfo params,
 								   QueryEnvironment *queryEnv,
-								   DestReceiver *dest, char *completionTag)
+								   DestReceiver *dest,
+								   QueryCompletion *qc)
 {
 	backtrace_register_error_callback();
 	if (prev_utility_hook)
-		(*prev_utility_hook)(pstmt, queryString,
+		(*prev_utility_hook)(pstmt, queryString, readOnlyTree,
 							 context, params, queryEnv,
-							 dest, completionTag);
+							 dest, qc);
 	else
-		standard_ProcessUtility(pstmt, queryString,
+		standard_ProcessUtility(pstmt, queryString, readOnlyTree,
 								context, params, queryEnv,
-								dest, completionTag);
+								dest, qc);
 }
 
-static void backtrace_post_parse_analyze_hook(ParseState *pstate, Query *query)
+static void backtrace_post_parse_analyze_hook(ParseState *pstate, Query *query, JumbleState *jstate)
 {
 	backtrace_register_error_callback();
 	if (prev_post_parse_analyze_hook)
-		prev_post_parse_analyze_hook(pstate, query);
+		prev_post_parse_analyze_hook(pstate, query, jstate);
 }
 
 
